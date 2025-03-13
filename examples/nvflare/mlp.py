@@ -11,6 +11,12 @@ class MLP(torch.nn.Module):
             output_dim (int): Dimension of output layer (default: 1 for regression)
         """
         super().__init__()
+
+        # Save arguments to be stored in nvflare config files
+        self.input_dim = input_dim
+        self.hidden_dims = hidden_dims
+        self.dropout_rate = dropout_rate
+        self.output_dim = output_dim
         
         # Build layers
         layers = []
