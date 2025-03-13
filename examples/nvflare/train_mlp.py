@@ -9,8 +9,12 @@ import datetime
 
 #model_dir = "/local/path/to/model"
 model_dir = "/localhome/local-hroth/Data/AMPLIFY/AMPLIFY_120M"
-csv_file = "/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd.csv"
+train_csv_file = "/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd.csv"
+val_csv_file = "/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd.csv"
 output_dir = "/localhome/local-hroth/Data/AMPLIFY/nvflare_outputs"
+
+BATCH_SIZE = 128
+NUM_EPOCHS = 10
 
 # Set up output directories
 current_time = datetime.datetime.now().strftime('%b%d_%H-%M-%S')
@@ -32,13 +36,23 @@ model, tokenizer = amplify.AMPLIFY.load(checkpoint_file, config_path)
 predictor = amplify.inference.Predictor(model, tokenizer, device=device)
 
 # Create dataset and dataloader
-sequence_dataset = SequenceDataset(csv_file, sequence_columns=["heavy", "light"], label_column="fitness")
-dataloader = torch.utils.data.DataLoader(
-    sequence_dataset,
-    batch_size=128,  # Adjust batch size as needed
+train_sequence_dataset = SequenceDataset(train_csv_file, sequence_columns=["heavy", "light"], label_column="fitness")
+val_sequence_dataset = SequenceDataset(val_csv_file, sequence_columns=["heavy", "light"], label_column="fitness")
+                                   
+train_dataloader = torch.utils.data.DataLoader(
+    train_sequence_dataset,
+    batch_size=BATCH_SIZE,  # Use constant defined at top of script
     shuffle=True,
     num_workers=4,  # Adjust based on your system
     pin_memory=True  # Helps with GPU transfer if using CUDA
+)
+
+val_dataloader = torch.utils.data.DataLoader(
+    val_sequence_dataset,
+    batch_size=BATCH_SIZE,  # Keep same batch size as training for consistency
+    shuffle=False,   # No need to shuffle validation data
+    num_workers=4,   # Keep same settings as training loader
+    pin_memory=True
 )
 
 # Define the MLP model
@@ -50,13 +64,11 @@ criterion = torch.nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 # Training loop
-num_epochs = 10
-model.train()
-for epoch in range(num_epochs):
-    print(f'\nEpoch [{epoch+1}/{num_epochs}]')
+for epoch in range(NUM_EPOCHS):
+    print(f'\nEpoch [{epoch+1}/{NUM_EPOCHS}]')
     epoch_loss = 0
     
-    for batch_idx, (batch_sequences, batch_labels) in enumerate(dataloader):
+    for batch_idx, (batch_sequences, batch_labels) in enumerate(train_dataloader):
         # Get embeddings for the batch
         batch_embeddings = []
         for heavy, light in zip(batch_sequences[0], batch_sequences[1]):
@@ -72,6 +84,7 @@ for epoch in range(num_epochs):
         batch_labels = torch.tensor(batch_labels, dtype=torch.float32).to(device)
         
         # Forward pass
+        model.train()
         optimizer.zero_grad()
         outputs = model(batch_embeddings)
         loss = criterion(outputs.squeeze(), batch_labels)
@@ -84,16 +97,40 @@ for epoch in range(num_epochs):
         epoch_loss += loss.item()
         
         # Log batch loss to TensorBoard
-        global_step = epoch * len(dataloader) + batch_idx
+        global_step = epoch * len(train_dataloader) + batch_idx
         writer.add_scalar('Loss/batch', loss.item(), global_step)
         
         # Print batch loss
-        print(f'Epoch [{epoch+1}/{num_epochs}], Batch [{batch_idx+1}/{len(dataloader)}], Loss: {loss.item():.4f}')
+        print(f'Epoch [{epoch+1}/{NUM_EPOCHS}], Batch [{batch_idx+1}/{len(train_dataloader)}], Loss: {loss.item():.4f}')
     
     # Calculate and log average epoch loss
-    avg_epoch_loss = epoch_loss / len(dataloader)
+    avg_epoch_loss = epoch_loss / len(train_dataloader)
     writer.add_scalar('Loss/epoch', avg_epoch_loss, epoch)
-    print(f'Epoch [{epoch+1}/{num_epochs}] Average Loss: {avg_epoch_loss:.4f}')
+    print(f'Epoch [{epoch+1}/{NUM_EPOCHS}] Average Loss: {avg_epoch_loss:.4f}')
+
+    # Validation loop
+    model.eval()
+    val_loss = 0
+    with torch.no_grad():
+        for batch_idx, (batch_sequences, batch_labels) in enumerate(val_dataloader):
+            # Get embeddings for the batch
+            batch_embeddings = []
+            for heavy, light in zip(batch_sequences[0], batch_sequences[1]):
+                heavy_embedding = predictor.embed(heavy)
+                light_embedding = predictor.embed(light)
+                combined_embedding = torch.cat([Tensor(heavy_embedding), Tensor(light_embedding)], dim=0).mean(dim=0, keepdim=True)
+                batch_embeddings.append(combined_embedding)
+            
+            batch_embeddings = torch.stack(batch_embeddings).to(device)
+            batch_labels = torch.tensor(batch_labels, dtype=torch.float32).to(device)   
+            
+            outputs = model(batch_embeddings)
+            loss = criterion(outputs.squeeze(), batch_labels)
+            val_loss += loss.item()
+
+    avg_val_loss = val_loss / len(val_dataloader)
+    writer.add_scalar('Loss/val_epoch', avg_val_loss, epoch)
+    print(f'Epoch [{epoch+1}/{NUM_EPOCHS}] Validation Loss: {avg_val_loss:.4f}')
 
 # Close TensorBoard writer
 writer.close()
