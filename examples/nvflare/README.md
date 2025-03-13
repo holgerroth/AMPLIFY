@@ -73,3 +73,26 @@ The MLP model:
 - AMPLIFY
 - TensorBoard
 - pandas
+
+
+## Visualizing Results
+
+To visualize training metrics and model performance:
+
+1. Launch TensorBoard:
+   ```bash
+   tensorboard --logdir /tmp/nvflare
+   ```
+
+2. Open your browser and navigate to:
+   ```
+   http://localhost:6006
+   ```
+
+TensorBoard will display:
+- Training and validation loss curves
+- Model metrics over training rounds
+- Performance comparisons across clients
+
+The logs are saved in `/tmp/nvflare` by default. You can modify the log directory by changing the `output_dir` parameter in the training scripts.
+

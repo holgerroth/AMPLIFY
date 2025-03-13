@@ -11,7 +11,7 @@ import datetime
 model_dir = "/localhome/local-hroth/Data/AMPLIFY/AMPLIFY_120M"
 train_csv_file = "/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd.csv"
 val_csv_file = "/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd.csv"
-output_dir = "/localhome/local-hroth/Data/AMPLIFY/nvflare_outputs"
+output_dir = "/tmp/nvflare/amplify_local"
 
 BATCH_SIZE = 128
 NUM_EPOCHS = 10
