@@ -130,6 +130,7 @@ while flare.is_running():
         def evaluate(model_params):
             # Validation loop
             model = MLP(input_dim=640)
+            model = model.to(device)
             model.eval()
             model.load_state_dict(model_params)
             val_loss = 0
@@ -153,15 +154,16 @@ while flare.is_running():
             avg_val_loss = val_loss / len(val_dataloader)
             return avg_val_loss
 
+        avg_val_loss = evaluate(model.cpu().state_dict())  # evaluate on local model after training
         writer.add_scalar('Loss/val_epoch', avg_val_loss, epoch)
         print(f'Epoch [{epoch+1}/{NUM_EPOCHS}] Validation Loss: {avg_val_loss:.4f}')
 
-        # (6) evaluate on received model for model selection
-        val_loss = evaluate(input_model.params)
+        # (6) evaluate on received global model for server-side model selection
+        global_val_loss = evaluate(input_model.params)
         # (7) construct trained FL model
         output_model = flare.FLModel(
             params=model.cpu().state_dict(),
-            metrics={"val_loss": val_loss},
+            metrics={"val_loss": global_val_loss},
             meta={"NUM_STEPS_CURRENT_ROUND": len(train_dataloader)},
         )
         # (8) send model back to NVFlare
