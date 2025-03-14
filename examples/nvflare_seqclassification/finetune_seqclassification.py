@@ -1,7 +1,10 @@
 import numpy as np
+import os
+import datetime
 
 import torch
 from torch import nn
+from torch.utils.tensorboard import SummaryWriter
 
 from datasets import load_dataset
 from transformers import AutoModel
@@ -33,15 +36,27 @@ class amplify_classifier(nn.Module):
         return self.classifier(h)
     
 # Hyper-parameters
-n_epochs = 10
-batch_size = 128
-learning_rate = 1e-4
+n_epochs = 100
+batch_size = 32
+learning_rate = 5e-4
+
+output_dir = "/tmp/nvflare/amplify_finetune_seqclassification"
+
+# Start
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-pretrained_model="chandar-lab/AMPLIFY_120M"
+# Set up output directories
+current_time = datetime.datetime.now().strftime('%b%d_%H-%M-%S')
+run_dir = os.path.join(output_dir, f'run_{current_time}')
+os.makedirs(run_dir, exist_ok=True)
+
+# Initialize TensorBoard writer
+writer = SummaryWriter(os.path.join(run_dir, 'logs'))
+
+pretrained_model="chandar-lab/AMPLIFY_350M"
 
 # Build Classifier on top of AMPLIFY
-model = amplify_classifier(pretrained_model_name_or_path=pretrained_model, hidden_size=128, num_labels=1)  # one output label for regression task
+model = amplify_classifier(pretrained_model_name_or_path=pretrained_model, hidden_size=256, num_labels=1)  # one output label for regression task
 model = model.to(device)
 
 # Load AMPLIFY tokenizer
@@ -97,7 +112,12 @@ for epoch in range(n_epochs):
         
         # Log the loss and accuracy
         train_loss.append(loss.item())
-        print(f"\rEpoch: {epoch} Step {i:6d}/{len(dataloader_train)} loss: {np.mean(train_loss):.3f} lr: {scheduler.get_lr()}", end="")
+        current_loss = np.mean(train_loss)
+        print(f"\rEpoch: {epoch} Step {i:6d}/{len(dataloader_train)} loss: {current_loss:.3f} lr: {scheduler.get_lr()}", end="")
+        # Log training loss to TensorBoard
+        global_step = epoch * len(dataloader_train) + i
+        writer.add_scalar('Loss/train', current_loss, global_step)
+        writer.add_scalar('Learning_rate', scheduler.get_last_lr()[0], global_step)
         if i == 100:
             break
     
@@ -117,5 +137,16 @@ for epoch in range(n_epochs):
 
             test_loss.append(loss.item())
             
-        print(f"\n>>> Test loss: {np.mean(test_loss):.3f}")
+        mean_test_loss = np.mean(test_loss)
+        print(f"\n>>> Test loss: {mean_test_loss:.3f}")
+        # Log test loss to TensorBoard
+        writer.add_scalar('Loss/test', mean_test_loss, epoch)
         
+# Close the TensorBoard writer
+writer.close()
+        
+# Save the trained model
+model_save_path = os.path.join(run_dir, 'mlp_model.pt')
+torch.save(model.state_dict(), model_save_path)
+print(f"Training completed and model saved to {model_save_path}")
+print(f"TensorBoard logs available in {os.path.join(run_dir, 'logs')}") 
