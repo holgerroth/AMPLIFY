@@ -70,7 +70,14 @@ data_files = {"train": train_csv_file, "test": test_csv_file}
 dataset = load_dataset("csv", data_files=data_files)
 
 # Set tokenizer
-dataset.set_transform(lambda x: {"labels": x["fitness"]} | tokenizer(x["heavy"], padding=True, pad_to_multiple_of=8, return_tensors='pt'))
+dataset.set_transform(lambda x: {
+   "labels": x["fitness"],
+} | tokenizer(
+   x["heavy"] + ["|"] + x["light"],  # Concatenate heavy and light chains with separator
+   padding=True, 
+   pad_to_multiple_of=8, 
+   return_tensors="pt"
+))
 
 # Create the dataloaders
 collate_fn = DataCollatorWithPadding(tokenizer, padding=True)
