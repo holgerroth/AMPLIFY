@@ -30,7 +30,7 @@ def parse_args():
                       help='Name or path of the pretrained AMPLIFY model')
     # Hyper-parameters    
     parser.add_argument('--n_epochs', type=int,
-                      default=10,
+                      default=30,
                       help='Number of training epochs')
     parser.add_argument('--batch_size', type=int,
                       default=32,
@@ -38,6 +38,13 @@ def parse_args():
     parser.add_argument('--learning_rate', type=float,
                       default=5e-4,
                       help='Learning rate for training')
+    # Model architecture
+    parser.add_argument('--layer_sizes', type=str,
+                      default="128,256,512,1024",
+                      help='Comma-separated list of layer sizes for the classifier MLP')
+    # Training options
+    parser.add_argument('--frozen_trunk', action='store_true',
+                      help='Whether to freeze the AMPLIFY trunk during training')
     return parser.parse_args()
 
 def main():
@@ -55,8 +62,11 @@ def main():
     # Initialize TensorBoard writer
     writer = SummaryWriter(os.path.join(run_dir, 'logs'))
 
+    # Parse layer sizes from string to list of integers
+    layer_sizes = [int(size) for size in args.layer_sizes.split(',')]
+
     # Build Classifier on top of AMPLIFY
-    model = AmplifyClassifier(pretrained_model_name_or_path=args.pretrained_model, layer_sizes=[256, 128], num_labels=1)  # one output label for regression task
+    model = AmplifyClassifier(pretrained_model_name_or_path=args.pretrained_model, layer_sizes=layer_sizes, num_labels=1)  # one output label for regression task
     model = model.to(device)
 
     # Load AMPLIFY tokenizer
@@ -99,8 +109,8 @@ def main():
             # Convert the attention mask to an additive mask
             attention_mask = torch.where(attention_mask==1, float(0.0), float("-inf"))
             
-            # The AMPLIFY trunk is frozen_trunk during the first epoch
-            output = model(input_ids, attention_mask, frozen_trunk=(epoch==0))
+            # Compute the model output
+            output = model(input_ids, attention_mask, frozen_trunk=args.frozen_trunk)
             
             # Compute the loss and accuracy
             loss = loss_fn(output.squeeze(), labels)
@@ -123,8 +133,6 @@ def main():
             writer.add_scalar('Loss/train', current_loss, global_step)
             writer.add_scalar('Learning_rate', scheduler.get_last_lr()[0], global_step)
             writer.add_scalar('Epoch', epoch, global_step)
-            if i == 100:
-                break
         
         # Evaluate
         with torch.no_grad():
