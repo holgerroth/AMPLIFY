@@ -33,7 +33,7 @@ def main():
     pretrained_model="chandar-lab/AMPLIFY_350M"
 
     # Build Classifier on top of AMPLIFY
-    model = AmplifyClassifier(pretrained_model_name_or_path=pretrained_model, layer_sizes=[128, 256, 512, 1024], num_labels=1)  # one output label for regression task
+    model = AmplifyClassifier(pretrained_model_name_or_path=pretrained_model, layer_sizes=[256, 128], num_labels=1)  # one output label for regression task
     model = model.to(device)
 
     # Load AMPLIFY tokenizer
