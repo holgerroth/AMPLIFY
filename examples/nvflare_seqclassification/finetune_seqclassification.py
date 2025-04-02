@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import datetime
+import argparse
 
 import torch
 from torch import nn
@@ -11,39 +12,58 @@ from transformers import AutoTokenizer
 from transformers import DataCollatorWithPadding
 from model import AmplifyClassifier
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Fine-tune AMPLIFY model for sequence classification')
+    # Data paths
+    parser.add_argument('--train_csv', type=str, 
+                      default="/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd.csv",
+                      help='Path to training CSV file')
+    parser.add_argument('--test_csv', type=str,
+                      default="/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd.csv",
+                      help='Path to test CSV file')
+    parser.add_argument('--output_dir', type=str,
+                      default="/tmp/nvflare/amplify_finetune_seqclassification",
+                      help='Directory to save model and logs')
+    # Pretrained model
+    parser.add_argument('--pretrained_model', type=str,
+                      default="chandar-lab/AMPLIFY_350M",
+                      help='Name or path of the pretrained AMPLIFY model')
+    # Hyper-parameters    
+    parser.add_argument('--n_epochs', type=int,
+                      default=10,
+                      help='Number of training epochs')
+    parser.add_argument('--batch_size', type=int,
+                      default=32,
+                      help='Batch size for training')
+    parser.add_argument('--learning_rate', type=float,
+                      default=5e-4,
+                      help='Learning rate for training')
+    return parser.parse_args()
+
 def main():
-    # Hyper-parameters
-    n_epochs = 10
-    batch_size = 32
-    learning_rate = 5e-4
-
-    output_dir = "/tmp/nvflare/amplify_finetune_seqclassification"
-
+    # Parse command line arguments
+    args = parse_args()
+    
     # Start
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Set up output directories
     current_time = datetime.datetime.now().strftime('%b%d_%H-%M-%S')
-    run_dir = os.path.join(output_dir, f'run_{current_time}')
+    run_dir = os.path.join(args.output_dir, f'run_{current_time}')
     os.makedirs(run_dir, exist_ok=True)
 
     # Initialize TensorBoard writer
     writer = SummaryWriter(os.path.join(run_dir, 'logs'))
 
-    pretrained_model="chandar-lab/AMPLIFY_350M"
-
     # Build Classifier on top of AMPLIFY
-    model = AmplifyClassifier(pretrained_model_name_or_path=pretrained_model, layer_sizes=[256, 128], num_labels=1)  # one output label for regression task
+    model = AmplifyClassifier(pretrained_model_name_or_path=args.pretrained_model, layer_sizes=[256, 128], num_labels=1)  # one output label for regression task
     model = model.to(device)
 
     # Load AMPLIFY tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(pretrained_model, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model, trust_remote_code=True)
 
-    # FLab bindings
-    train_csv_file = "/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd.csv"
-    test_csv_file = "/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd.csv"
-
-    data_files = {"train": train_csv_file, "test": test_csv_file}
+    # Add data files
+    data_files = {"train": args.train_csv, "test": args.test_csv}
     dataset = load_dataset("csv", data_files=data_files)
 
     # Set tokenizer
@@ -58,16 +78,16 @@ def main():
 
     # Create the dataloaders
     collate_fn = DataCollatorWithPadding(tokenizer, padding=True)
-    dataloader_train = torch.utils.data.DataLoader(dataset["train"], collate_fn=collate_fn, batch_size=batch_size, pin_memory=True, shuffle=True, num_workers=8)
-    dataloader_test = torch.utils.data.DataLoader(dataset["test"], collate_fn=collate_fn, batch_size=batch_size, pin_memory=True, num_workers=8)
+    dataloader_train = torch.utils.data.DataLoader(dataset["train"], collate_fn=collate_fn, batch_size=args.batch_size, pin_memory=True, shuffle=True, num_workers=8)
+    dataloader_test = torch.utils.data.DataLoader(dataset["test"], collate_fn=collate_fn, batch_size=args.batch_size, pin_memory=True, num_workers=8)
 
     # Build the loss, optimizer, and scheduler
     loss_fn = torch.nn.MSELoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=0, total_iters=len(dataloader_train) * (n_epochs-1))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=0, total_iters=len(dataloader_train) * (args.n_epochs-1))
 
     # Training loop
-    for epoch in range(n_epochs):
+    for epoch in range(args.n_epochs):
         train_loss = []
         for i, batch in enumerate(dataloader_train):
             model.train()
@@ -102,6 +122,7 @@ def main():
             global_step = epoch * len(dataloader_train) + i
             writer.add_scalar('Loss/train', current_loss, global_step)
             writer.add_scalar('Learning_rate', scheduler.get_last_lr()[0], global_step)
+            writer.add_scalar('Epoch', epoch, global_step)
             if i == 100:
                 break
         
