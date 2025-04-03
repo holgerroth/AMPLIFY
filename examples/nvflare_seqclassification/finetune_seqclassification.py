@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 from datasets import load_dataset
 from transformers import AutoTokenizer
 from transformers import DataCollatorWithPadding
-from model import AmplifyClassifier
+from model import AmplifyClassifier, print_model_info
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Fine-tune AMPLIFY model for sequence classification')
@@ -36,10 +36,10 @@ def parse_args():
                       default=32,
                       help='Batch size for training')
     parser.add_argument('--trunk_lr', type=float,
-                      default=1e-4,
+                      default=1e-6,
                       help='Learning rate for the AMPLIFY trunk')
     parser.add_argument('--classifier_lr', type=float,
-                      default=1e-3,
+                      default=5e-3,
                       help='Learning rate for the classifier layers')
     # Model architecture
     parser.add_argument('--layer_sizes', type=str,
@@ -71,6 +71,9 @@ def main():
     # Build Classifier on top of AMPLIFY
     model = AmplifyClassifier(pretrained_model_name_or_path=args.pretrained_model, layer_sizes=layer_sizes, num_labels=1)  # one output label for regression task
     model = model.to(device)
+    
+    # Print model architecture and configuration
+    print_model_info(model, layer_sizes, args)
 
     # Load AMPLIFY tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model, trust_remote_code=True)
@@ -144,8 +147,8 @@ def main():
             # Log training loss to TensorBoard
             global_step = epoch * len(dataloader_train) + i
             writer.add_scalar('Loss/train', current_loss, global_step)
-            writer.add_scalar('trunk_lr/trunk', scheduler.get_last_lr()[0], global_step)
-            writer.add_scalar('trunk_lr/classifier', scheduler.get_last_lr()[1], global_step)
+            writer.add_scalar('LR/trunk', scheduler.get_last_lr()[0], global_step)
+            writer.add_scalar('LR/classifier', scheduler.get_last_lr()[1], global_step)
             writer.add_scalar('Epoch', epoch, global_step)
         
         # Evaluate
@@ -173,7 +176,7 @@ def main():
     writer.close()
             
     # Save the trained model
-    model_save_path = os.path.join(run_dir, 'mlp_model.pt')
+    model_save_path = os.path.join(run_dir, 'fine_tuned_model.pt')
     torch.save(model.state_dict(), model_save_path)
     print(f"Training completed and model saved to {model_save_path}")
     print(f"TensorBoard logs available in {os.path.join(run_dir, 'logs')}")

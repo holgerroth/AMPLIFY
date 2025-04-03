@@ -2,6 +2,8 @@ import torch
 from torch import nn
 from transformers import AutoModel
 
+
+
 class AmplifyClassifier(nn.Module):
     def __init__(self, pretrained_model_name_or_path, layer_sizes, num_labels, dropout_rate=0.1, num_groups=8):
         super().__init__()
@@ -37,3 +39,16 @@ class AmplifyClassifier(nn.Module):
         
         # apply classifier
         return self.classifier(h) 
+    
+
+def print_model_info(model, layer_sizes, args):
+    """Print model architecture and training configuration details."""
+    print("\nModel Architecture:")
+    print(model)
+    print("\nTotal parameters:", sum(p.numel() for p in model.parameters()))
+    print("Trainable parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
+    print("Trunk parameters:", sum(p.numel() for p in model.trunk.parameters()))
+    print("Classifier parameters:", sum(p.numel() for p in model.classifier.parameters()))
+    print("\nLayer sizes:", layer_sizes)
+    print("Learning rates - Trunk:", args.trunk_lr, "Classifier:", args.classifier_lr)
+    print("-" * 80 + "\n")    
