@@ -35,9 +35,12 @@ def parse_args():
     parser.add_argument('--batch_size', type=int,
                       default=32,
                       help='Batch size for training')
-    parser.add_argument('--learning_rate', type=float,
-                      default=5e-4,
-                      help='Learning rate for training')
+    parser.add_argument('--trunk_lr', type=float,
+                      default=1e-4,
+                      help='Learning rate for the AMPLIFY trunk')
+    parser.add_argument('--classifier_lr', type=float,
+                      default=1e-3,
+                      help='Learning rate for the classifier layers')
     # Model architecture
     parser.add_argument('--layer_sizes', type=str,
                       default="128,256,512,1024",
@@ -93,7 +96,17 @@ def main():
 
     # Build the loss, optimizer, and scheduler
     loss_fn = torch.nn.MSELoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    
+    # Create parameter groups with different learning rates
+    param_groups = [
+        {'params': model.trunk.parameters(), 'lr': args.trunk_lr},
+        {'params': model.classifier.parameters(), 'lr': args.classifier_lr}
+    ]
+    
+    # Create single optimizer with parameter groups
+    optimizer = torch.optim.AdamW(param_groups)
+    
+    # Create scheduler
     scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=0, total_iters=len(dataloader_train) * (args.n_epochs-1))
 
     # Training loop
@@ -127,11 +140,12 @@ def main():
             # Log the loss and accuracy
             train_loss.append(loss.item())
             current_loss = np.mean(train_loss)
-            print(f"\rEpoch: {epoch} Step {i:6d}/{len(dataloader_train)} loss: {current_loss:.3f} lr: {scheduler.get_lr()}", end="")
+            print(f"\rEpoch: {epoch} Step {i:6d}/{len(dataloader_train)} loss: {current_loss:.3f} trunk_lr: {scheduler.get_last_lr()[0]:.2e} classifier_lr: {scheduler.get_last_lr()[1]:.2e}", end="")
             # Log training loss to TensorBoard
             global_step = epoch * len(dataloader_train) + i
             writer.add_scalar('Loss/train', current_loss, global_step)
-            writer.add_scalar('Learning_rate', scheduler.get_last_lr()[0], global_step)
+            writer.add_scalar('trunk_lr/trunk', scheduler.get_last_lr()[0], global_step)
+            writer.add_scalar('trunk_lr/classifier', scheduler.get_last_lr()[1], global_step)
             writer.add_scalar('Epoch', epoch, global_step)
         
         # Evaluate
