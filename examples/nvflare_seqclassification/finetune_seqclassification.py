@@ -16,10 +16,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Fine-tune AMPLIFY model for sequence classification')
     # Data paths
     parser.add_argument('--train_csv', type=str, 
-                      default="/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd.csv",
+                      default="/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd_combined.csv",
                       help='Path to training CSV file')
     parser.add_argument('--test_csv', type=str,
-                      default="/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd.csv",
+                      default="/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd_combined.csv",
                       help='Path to test CSV file')
     parser.add_argument('--output_dir', type=str,
                       default="/tmp/nvflare/amplify_finetune_seqclassification",
@@ -36,10 +36,10 @@ def parse_args():
                       default=32,
                       help='Batch size for training')
     parser.add_argument('--trunk_lr', type=float,
-                      default=1e-6,
+                      default=1e-4,
                       help='Learning rate for the AMPLIFY trunk')
     parser.add_argument('--classifier_lr', type=float,
-                      default=5e-3,
+                      default=5e-4,
                       help='Learning rate for the classifier layers')
     # Model architecture
     parser.add_argument('--layer_sizes', type=str,
@@ -83,14 +83,7 @@ def main():
     dataset = load_dataset("csv", data_files=data_files)
 
     # Set tokenizer
-    dataset.set_transform(lambda x: {
-       "labels": x["fitness"],
-    } | tokenizer(
-       x["heavy"] + ["|"] + x["light"],  # Concatenate heavy and light chains with separator
-       padding=True, 
-       pad_to_multiple_of=8, 
-       return_tensors="pt"
-    ))
+    dataset.set_transform(lambda x: {"labels": x["fitness"]} | tokenizer(x["combined"], padding=True, pad_to_multiple_of=8, return_tensors='pt'))
 
     # Create the dataloaders
     collate_fn = DataCollatorWithPadding(tokenizer, padding=True)
