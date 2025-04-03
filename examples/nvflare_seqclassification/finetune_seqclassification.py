@@ -2,6 +2,7 @@ import numpy as np
 import os
 import datetime
 import argparse
+import json
 
 import torch
 from torch import nn
@@ -16,10 +17,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Fine-tune AMPLIFY model for sequence classification')
     # Data paths
     parser.add_argument('--train_csv', type=str, 
-                      default="/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd_combined.csv",
+                      default="/localhome/local-hroth/Data/AMPLIFY/FLAb/combined_data/binding/binding_combined.csv",
                       help='Path to training CSV file')
     parser.add_argument('--test_csv', type=str,
-                      default="/localhome/local-hroth/Data/AMPLIFY/FLAb/data/binding/Koenig2017_g6_Kd_combined.csv",
+                      default="/localhome/local-hroth/Data/AMPLIFY/FLAb/combined_data/binding/binding_combined.csv",
                       help='Path to test CSV file')
     parser.add_argument('--output_dir', type=str,
                       default="/tmp/nvflare/amplify_finetune_seqclassification",
@@ -33,17 +34,17 @@ def parse_args():
                       default=30,
                       help='Number of training epochs')
     parser.add_argument('--batch_size', type=int,
-                      default=32,
+                      default=64,
                       help='Batch size for training')
     parser.add_argument('--trunk_lr', type=float,
-                      default=1e-4,
+                      default=1e-6,
                       help='Learning rate for the AMPLIFY trunk')
     parser.add_argument('--classifier_lr', type=float,
-                      default=5e-4,
+                      default=5e-3,
                       help='Learning rate for the classifier layers')
     # Model architecture
     parser.add_argument('--layer_sizes', type=str,
-                      default="128,256,512,1024",
+                      default="128,64,32",
                       help='Comma-separated list of layer sizes for the classifier MLP')
     # Training options
     parser.add_argument('--frozen_trunk', action='store_true',
@@ -82,8 +83,12 @@ def main():
     data_files = {"train": args.train_csv, "test": args.test_csv}
     dataset = load_dataset("csv", data_files=data_files)
 
+    # Compute train dataset statistics and use during training and testing
+    mean = np.mean(dataset["train"]["fitness"])
+    std = np.std(dataset["train"]["fitness"])
+
     # Set tokenizer
-    dataset.set_transform(lambda x: {"labels": x["fitness"]} | tokenizer(x["combined"], padding=True, pad_to_multiple_of=8, return_tensors='pt'))
+    dataset.set_transform(lambda x: {"labels": (x["fitness"]-mean)/std} | tokenizer(x["combined"], padding=True, pad_to_multiple_of=8, return_tensors='pt'))
 
     # Create the dataloaders
     collate_fn = DataCollatorWithPadding(tokenizer, padding=True)
@@ -108,8 +113,8 @@ def main():
     # Training loop
     for epoch in range(args.n_epochs):
         train_loss = []
+        model.train()
         for i, batch in enumerate(dataloader_train):
-            model.train()
             # Convert to correct dtype and move to GPU
             input_ids = batch["input_ids"].to(torch.long).to(device)
             attention_mask = batch["attention_mask"].to(torch.float32).to(device)
@@ -136,7 +141,7 @@ def main():
             # Log the loss and accuracy
             train_loss.append(loss.item())
             current_loss = np.mean(train_loss)
-            print(f"\rEpoch: {epoch} Step {i:6d}/{len(dataloader_train)} loss: {current_loss:.3f} trunk_lr: {scheduler.get_last_lr()[0]:.2e} classifier_lr: {scheduler.get_last_lr()[1]:.2e}", end="")
+            print(f"\rEpoch: {epoch:6d}/{args.n_epochs} Step {i:6d}/{len(dataloader_train)} loss: {current_loss:.3f} trunk_lr: {scheduler.get_last_lr()[0]:.2e} classifier_lr: {scheduler.get_last_lr()[1]:.2e}", end="")
             # Log training loss to TensorBoard
             global_step = epoch * len(dataloader_train) + i
             writer.add_scalar('Loss/train', current_loss, global_step)
@@ -146,9 +151,9 @@ def main():
         
         # Evaluate
         with torch.no_grad():
+            model.eval()
             test_loss = []
             for batch in dataloader_test:
-                model.eval()
                 # Convert to correct dtype and move to GPU
                 input_ids = batch["input_ids"].to(torch.long).to(device)
                 attention_mask = batch["attention_mask"].to(torch.float32).to(device)
@@ -161,10 +166,12 @@ def main():
                 test_loss.append(loss.item())
                 
             mean_test_loss = np.mean(test_loss)
-            print(f"\n>>> Test loss: {mean_test_loss:.3f}")
+            rmse_test_loss = np.sqrt(np.mean(test_loss))
+            print(f"\n>>> Test MSE loss: {mean_test_loss:.3f} Test RMSE loss: {rmse_test_loss:.3f}")
             # Log test loss to TensorBoard
             writer.add_scalar('Loss/test', mean_test_loss, epoch)
-            
+            writer.add_scalar('RMSE/test', rmse_test_loss, epoch)
+    
     # Close the TensorBoard writer
     writer.close()
             
@@ -173,6 +180,12 @@ def main():
     torch.save(model.state_dict(), model_save_path)
     print(f"Training completed and model saved to {model_save_path}")
     print(f"TensorBoard logs available in {os.path.join(run_dir, 'logs')}")
+
+    # Save the used hyperparameters and dataset statistics
+    with open(os.path.join(run_dir, 'hyperparameters.json'), 'w') as f:
+        json.dump(args.__dict__, f)
+    with open(os.path.join(run_dir, 'dataset_statistics.json'), 'w') as f:
+        json.dump({"mean": mean, "std": std}, f)
 
 if __name__ == "__main__":
     main() 

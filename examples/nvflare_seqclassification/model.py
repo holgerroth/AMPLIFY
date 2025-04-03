@@ -9,6 +9,16 @@ class AmplifyClassifier(nn.Module):
         super().__init__()
         self.trunk = AutoModel.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True)
         
+        print("Creating fine-tuning AMPLIFY model...")
+        print("-" * 80 + "\n")
+        print(f"Using trunk: {pretrained_model_name_or_path}")
+        print(f"Using layer sizes: {layer_sizes}")
+        print(f"Using number of labels: {num_labels}")
+        print(f"Using dropout rate: {dropout_rate}")
+        print(f"Using number of groups: {num_groups}")
+        print(f"Trunk hidden size: {self.trunk.config.hidden_size}")
+        print("-" * 80 + "\n")
+
         # Create classifier layers dynamically based on layer_sizes
         layers = []
         prev_size = self.trunk.config.hidden_size
